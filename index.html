@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HARMAN GeoDefer — Bangalore Autonomous HUD v4</title>
+    <meta name="description" content="Geo-Deferred Notification System — queues non-urgent messages in low-coverage zones and delivers them in high-signal segments.">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Orbitron:wght@500;700;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- START SCREEN -->
+<div id="startScreen">
+    <div class="start-city-tag">⬡ Bangalore · Karnataka · IN</div>
+    <div class="start-logo">HARMAN <span>HUD</span></div>
+    <div class="start-subtitle">System Ready: Awaiting Route Initialization</div>
+    <button class="start-btn" id="startEngineBtn">INITIALIZE ARIA</button>
+    <div class="start-mic-note">Microphone access required for voice navigation</div>
+</div>
+
+<!-- Map -->
+<div id="map"></div>
+
+<!-- Arrival / Shutdown Overlay -->
+<div id="arrivalOverlay">
+    <div class="arrival-inner">
+        <div class="arrival-icon">🏁</div>
+        <div class="arrival-title">Destination Reached</div>
+        <div class="arrival-dest" id="arrivalDestName">—</div>
+        <div class="arrival-msg" id="arrivalMsg"></div>
+        <!-- Trip Stats -->
+        <div id="arrivalStats"></div>
+        <div class="arrival-standby">GeoDefer · Standby Mode</div>
+        <button class="new-trip-btn" id="newTripBtn">↺ Start New Trip</button>
+    </div>
+</div>
+
+<!-- Architecture Badge -->
+<div id="archBadge">
+    <span class="arch-dot"></span>
+    CLIENT-ONLY SIMULATION &nbsp;·&nbsp; In production: server queues &amp; pushes on signal restore
+</div>
+
+<!-- HUD Layer -->
+<div class="hud-layer">
+
+    <!-- Top Bar -->
+    <div class="panel top-bar" id="topBar">
+        <div class="speed-hud">
+            <span class="speed-val" id="speedDisplay">0</span>
+            <span class="speed-unit">KM/H</span>
+        </div>
+        <div class="hud-center">
+            <div class="clock" id="clockDisplay">--:--</div>
+            <div class="hud-bangalore-tag">Bangalore · GeoDefer Active</div>
+        </div>
+        <div class="signal-wrap">
+            <div class="signal-container" id="signalBars">
+                <div class="signal-bar active"></div>
+                <div class="signal-bar active"></div>
+                <div class="signal-bar active"></div>
+                <div class="signal-bar active"></div>
+            </div>
+            <div id="signalPct" class="signal-pct">100%</div>
+        </div>
+    </div>
+
+    <!-- Alerts -->
+    <div class="alerts-container">
+        <div class="zone-alert"    id="zoneAlert">⚠ Dead Zone — Deferring Non-Critical</div>
+        <div class="pothole-alert" id="potholeAlert">⚠ Pothole Detected Ahead</div>
+    </div>
+
+    <!-- LEFT: Pending -->
+    <div class="panel sidebar left-sidebar" id="leftPanel">
+        <h2>Pending <span class="badge" id="pendingCount">0</span></h2>
+        <div class="notification-list" id="pendingList"></div>
+    </div>
+
+    <!-- RIGHT: Delivered -->
+    <div class="panel sidebar right-sidebar" id="rightPanel">
+        <h2>Delivered <span class="badge" id="deliveredCount">0</span></h2>
+        <div class="notification-list" id="deliveredList"></div>
+    </div>
+
+    <!-- VOICE PANEL -->
+    <div id="voicePanel">
+        <div class="vp-assistant-line">
+            <div class="vp-avatar" id="vpAvatar">🤖</div>
+            <div class="vp-text-bubble">
+                <div class="vp-label">ARIA · GeoDefer Bangalore</div>
+                <div id="vpAssistantText">Initialising…</div>
+            </div>
+        </div>
+        <div class="waveform" id="waveform">
+            <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <div class="vp-user-row">
+            <div class="mic-wrap">
+                <div id="micOrb"></div>
+                <span id="micStatus">Standby</span>
+            </div>
+            <div id="vpUserTranscript"></div>
+        </div>
+        <div class="vp-btn-row hidden" id="fallbackBtns"></div>
+        <div id="routePill">
+            <span>📍</span>
+            <span id="routePillText">Route: — → —</span>
+            <div id="routeProgressBar"><div id="routeProgressFill"></div></div>
+        </div>
+    </div>
+
+    <!-- Bottom Buttons -->
+    <button class="settings-btn" id="openSettingsBtn">⚙ App Priorities</button>
+    <button class="logic-btn"    id="openLogicBtn">? How It Works</button>
+
+    <!-- Journey Info -->
+    <div class="journey-info" id="journeyInfo"></div>
+
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settingsModal">
+    <div class="settings-modal">
+        <div class="settings-header">
+            <h2>Notification Priorities</h2>
+            <button class="close-btn" id="closeSettingsBtn">&times;</button>
+        </div>
+        <div id="settingsList"></div>
+        <div class="setting-item" style="border-bottom:none;padding-top:18px;border-top:1px solid rgba(0,229,255,0.1);margin-top:8px;">
+            <div>
+                <div class="setting-name" style="color:var(--accent-cyan);">🔊 Voice Feedback</div>
+                <div class="setting-desc">ARIA reads alerts aloud during navigation</div>
+            </div>
+            <label class="switch"><input type="checkbox" id="voiceToggle" checked><span class="slider"></span></label>
+        </div>
+
+        <!-- CallMeBot Section -->
+        <div class="callmebot-section">
+            <div class="cb-title">📨 Live Alerts <span class="cb-badge" style="background:rgba(0,136,204,0.15);color:#29b6f6;border-color:rgba(0,136,204,0.3)">CallMeBot · Telegram</span></div>
+            <div class="cb-desc">Receive real Telegram messages &amp; voice calls during navigation. No API key needed — just your Telegram username.</div>
+            <div class="cb-setup-steps">
+                <div class="cb-step"><span>📩</span> <strong>Text alert</strong> fires every time deferred notifications are released at signal restore</div>
+                <div class="cb-step"><span>📞</span> <strong>Voice call</strong> fires on trip arrival with your full journey summary</div>
+            </div>
+            <input class="cb-input" id="cbUserInput" type="text" value="@YNVirulkar" placeholder="Your Telegram @username" />
+            <button class="cb-save-btn" id="cbSaveBtn" style="background:rgba(0,136,204,0.12);color:#29b6f6;border-color:rgba(0,136,204,0.35)">Save &amp; Send Test Message</button>
+        </div>
+    </div>
+</div>
+
+<!-- Logic / How It Works Modal -->
+<div class="modal-overlay" id="logicModal">
+    <div class="settings-modal logic-modal-content">
+        <div class="settings-header">
+            <h2>How GeoDefer Works</h2>
+            <button class="close-btn" id="closeLogicBtn">&times;</button>
+        </div>
+
+        <!-- Flowchart -->
+        <div class="flow-chart">
+            <div class="flow-node start">📨 Notification Arrives</div>
+            <div class="flow-arrow-v">↓</div>
+            <div class="flow-diamond">Is it <strong>Critical</strong>?<br><small>Maps · System · Phone</small></div>
+            <div class="flow-row">
+                <div class="flow-col">
+                    <div class="flow-branch-label yes">YES</div>
+                    <div class="flow-arrow-v">↓</div>
+                    <div class="flow-node deliver">✅ Deliver Immediately</div>
+                    <div class="flow-note">Bypasses deferral entirely</div>
+                </div>
+                <div class="flow-divider"></div>
+                <div class="flow-col">
+                    <div class="flow-branch-label no">NO</div>
+                    <div class="flow-arrow-v">↓</div>
+                    <div class="flow-diamond sm">In <strong>Dead Zone</strong>?<br><small>Poor Signal Coverage</small></div>
+                    <div class="flow-row">
+                        <div class="flow-col">
+                            <div class="flow-branch-label yes">YES</div>
+                            <div class="flow-arrow-v">↓</div>
+                            <div class="flow-node defer">📥 Queue to Pending</div>
+                            <div class="flow-arrow-v">↓</div>
+                            <div class="flow-node flush">📡 Signal Restored<br>→ Batch Deliver All</div>
+                        </div>
+                        <div class="flow-divider"></div>
+                        <div class="flow-col">
+                            <div class="flow-branch-label no">NO</div>
+                            <div class="flow-arrow-v">↓</div>
+                            <div class="flow-node deliver">✅ Deliver Immediately</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Priority Table -->
+        <div class="priority-table">
+            <div class="pt-header">Priority Rules</div>
+            <div class="pt-row">
+                <span class="pt-pill critical">P1 — Critical</span>
+                <span>Always delivered. Never deferred. Bypasses all logic.</span>
+            </div>
+            <div class="pt-row">
+                <span class="pt-pill non-critical">P2 — Non-Critical</span>
+                <span>Deferred in dead zones. Delivered in good-signal segments.</span>
+            </div>
+            <div class="pt-row">
+                <span class="pt-pill restore">On Restore</span>
+                <span>All queued notifications flush in sequence with 0.8s stagger.</span>
+            </div>
+        </div>
+
+        <!-- Dead Zone Legend -->
+        <div class="priority-table" style="margin-top:16px">
+            <div class="pt-header">Named Dead Zone Corridors</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;">
+                <div class="pt-row" style="border:none;padding:4px 0"><span style="color:var(--accent-red)">📵</span> Silk Board Junction</div>
+                <div class="pt-row" style="border:none;padding:4px 0"><span style="color:var(--accent-red)">📵</span> KR Puram Underpass</div>
+                <div class="pt-row" style="border:none;padding:4px 0"><span style="color:var(--accent-red)">📵</span> Hebbal Flyover Tunnel</div>
+                <div class="pt-row" style="border:none;padding:4px 0"><span style="color:var(--accent-red)">📵</span> Electronic City Phase-1</div>
+                <div class="pt-row" style="border:none;padding:4px 0"><span style="color:var(--accent-red)">📵</span> Marathahalli Bridge</div>
+                <div class="pt-row" style="border:none;padding:4px 0"><span style="color:var(--accent-red)">📵</span> Bannerghatta Underpass</div>
+                <div class="pt-row" style="border:none;padding:4px 0"><span style="color:var(--accent-red)">📵</span> Yeshwanthpur Underpass</div>
+                <div class="pt-row" style="border:none;padding:4px 0"><span style="color:var(--accent-red)">📵</span> Old Airport Road Dip</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Mobile Tab Bar -->
+<div id="mobileTabBar">
+    <button class="mob-tab active" id="mobTabMap" onclick="switchMobTab('map')">
+        <span class="mob-tab-icon">🗺️</span><span>Map</span>
+    </button>
+    <button class="mob-tab" id="mobTabPending" onclick="switchMobTab('pending')">
+        <span class="mob-tab-icon">📥</span>
+        <span>Pending <span class="mob-tab-badge" id="mobPendingBadge"></span></span>
+    </button>
+    <button class="mob-tab" id="mobTabDelivered" onclick="switchMobTab('delivered')">
+        <span class="mob-tab-icon">📤</span>
+        <span>Delivered <span class="mob-tab-badge" id="mobDeliveredBadge"></span></span>
+    </button>
+    <button class="mob-tab" id="mobTabSettings" onclick="document.getElementById('openSettingsBtn').click()">
+        <span class="mob-tab-icon">⚙</span><span>Settings</span>
+    </button>
+</div>
+
+<!-- Leaflet -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- App Logic -->
+<script src="app.js"></script>
+
+</body>
+</html>
