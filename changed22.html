@@ -1,0 +1,1648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HARMAN GeoDefer — Bangalore Autonomous HUD v3</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Orbitron:wght@500;700;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* ═══════════════════════════════════════
+           DESIGN TOKENS
+        ═══════════════════════════════════════ */
+        :root {
+            --bg-dark:            #01020a;
+            --panel-bg:           rgba(4, 8, 22, 0.85);
+            --panel-bg-deep:      rgba(2, 4, 14, 0.92);
+            --accent-cyan:        #00e5ff;
+            --accent-cyan-glow:   rgba(0, 229, 255, 0.55);
+            --accent-red:         #ff1a4e;
+            --accent-red-glow:    rgba(255, 26, 78, 0.6);
+            --accent-green:       #00ffb3;
+            --accent-green-glow:  rgba(0, 255, 179, 0.55);
+            --accent-yellow:      #ffcc00;
+            --accent-yellow-glow: rgba(255, 204, 0, 0.55);
+            --accent-violet:      #b47aff;
+            --accent-news:        #ff8c42;
+            --accent-gmail:       #ea4335;
+            --text-main:          #e8eeff;
+            --text-dim:           #6a7a9f;
+            --font-display:       'Orbitron', monospace;
+            --font-body:          'Rajdhani', sans-serif;
+            --font-mono:          'Space Mono', monospace;
+            --ease-antigrav:      cubic-bezier(0.34, 1.56, 0.64, 1);
+            --ease-float:         cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        body, html {
+            height: 100%; width: 100%;
+            overflow: hidden;
+            background: var(--bg-dark);
+            font-family: var(--font-body);
+            color: var(--text-main);
+        }
+
+        /* ═══════════════════════════════════════
+           START SCREEN
+        ═══════════════════════════════════════ */
+        #startScreen {
+            position: fixed; inset: 0; z-index: 9999;
+            background: radial-gradient(ellipse 80% 60% at 50% 40%, #050d28 0%, #01020a 100%);
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            transition: opacity 1.1s var(--ease-float), transform 1.1s var(--ease-antigrav);
+        }
+        #startScreen.hidden { opacity: 0; pointer-events: none; transform: translateZ(60px) scale(1.04); }
+        #startScreen::before {
+            content: '';
+            position: absolute; inset: 0;
+            background-image:
+                linear-gradient(rgba(0,229,255,0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,229,255,0.04) 1px, transparent 1px);
+            background-size: 60px 60px;
+            animation: gridDrift 12s linear infinite;
+        }
+        @keyframes gridDrift { 0%{transform:translateY(0)} 100%{transform:translateY(60px)} }
+        .start-city-tag {
+            font-family: var(--font-mono); font-size: 0.62rem;
+            color: var(--accent-cyan); letter-spacing: 4px;
+            text-transform: uppercase; opacity: 0.55; margin-bottom: 28px;
+            border: 1px solid rgba(0,229,255,0.2); padding: 5px 18px; border-radius: 20px;
+            position: relative; z-index: 1;
+        }
+        .start-logo {
+            font-family: var(--font-display); font-size: 3.8rem; font-weight: 900;
+            color: #fff; letter-spacing: 8px;
+            text-shadow: 0 0 40px var(--accent-cyan-glow), 0 0 80px rgba(0,229,255,0.2);
+            margin-bottom: 6px; position: relative; z-index: 1;
+        }
+        .start-logo span { color: var(--accent-cyan); }
+        .start-subtitle {
+            font-family: var(--font-mono); font-size: 0.7rem;
+            color: var(--accent-cyan); letter-spacing: 3px; opacity: 0.75;
+            margin-bottom: 50px; text-transform: uppercase; position: relative; z-index: 1;
+        }
+        .start-btn {
+            padding: 16px 54px; font-size: 0.95rem; font-family: var(--font-display);
+            background: transparent; color: var(--accent-cyan);
+            border: 1.5px solid var(--accent-cyan); border-radius: 4px;
+            cursor: pointer; letter-spacing: 4px; text-transform: uppercase;
+            position: relative; overflow: hidden; z-index: 1;
+            transition: all 0.35s var(--ease-antigrav);
+            box-shadow: 0 0 24px rgba(0,229,255,0.18), inset 0 0 30px rgba(0,229,255,0.03);
+        }
+        .start-btn::before {
+            content: ''; position: absolute; inset: 0;
+            background: var(--accent-cyan); transform: scaleX(0);
+            transform-origin: left; transition: transform 0.35s var(--ease-antigrav); z-index: -1;
+        }
+        .start-btn:hover { color: #000; box-shadow: 0 0 55px var(--accent-cyan-glow); }
+        .start-btn:hover::before { transform: scaleX(1); }
+        .start-mic-note {
+            margin-top: 20px; font-family: var(--font-mono); font-size: 0.62rem;
+            color: var(--text-dim); letter-spacing: 1px; position: relative; z-index: 1;
+        }
+
+        /* ═══════════════════════════════════════
+           MAP
+        ═══════════════════════════════════════ */
+        #map {
+            position: absolute; inset: 0; z-index: 1;
+            filter: saturate(1.2) contrast(1.1) brightness(0.92);
+        }
+        .leaflet-control-attribution { display: none !important; }
+
+        /* ═══════════════════════════════════════
+           HUD LAYER  — perspective container
+        ═══════════════════════════════════════ */
+        .hud-layer {
+            position: absolute; inset: 0; z-index: 1000;
+            pointer-events: none; perspective: 1200px;
+        }
+
+        /* ── Antigravity Panel Base ── */
+        .panel {
+            background: var(--panel-bg);
+            backdrop-filter: blur(18px) saturate(1.3);
+            -webkit-backdrop-filter: blur(18px) saturate(1.3);
+            border: 1px solid rgba(0,229,255,0.2);
+            border-radius: 16px; pointer-events: auto;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.7),
+                        0 1px 0 rgba(0,229,255,0.15) inset,
+                        0 -1px 0 rgba(0,0,0,0.5) inset;
+            transition: transform 0.7s var(--ease-antigrav),
+                        opacity 0.6s var(--ease-float),
+                        filter 0.5s ease, box-shadow 0.5s ease;
+            transform-style: preserve-3d; will-change: transform;
+        }
+        /* ── Dead-zone dim: applied to chrome panels (top bar, voice panel) only ── */
+        .panel.dead-zone-dim {
+            opacity: 0.45; filter: brightness(0.55) saturate(0.4);
+            transform: translateZ(-28px) scale(0.982);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.9);
+        }
+
+        /*
+         * BUG FIX — Notification sidebars must never fade their content.
+         * .dead-zone-dim-sidebar dims only the panel chrome (border, background)
+         * via filter, while keeping opacity at 1 so cards stay fully readable.
+         * The .notif-card override below is an extra safeguard.
+         */
+        .panel.dead-zone-dim-sidebar {
+            opacity: 1;                              /* cards stay fully visible */
+            filter: brightness(0.75) saturate(0.55);/* subtle chrome desaturation only */
+            transform: translateZ(-28px) scale(0.982);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.9);
+        }
+        /* Guarantee notification cards are never made transparent */
+        .panel.dead-zone-dim-sidebar .notif-card,
+        .panel.dead-zone-dim-sidebar .notification-list {
+            opacity: 1 !important;
+            filter: none !important;
+        }
+
+        /* ── Top Bar ── */
+        .top-bar {
+            position: absolute; top: 22px; left: 50%; transform: translateX(-50%);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 11px 36px; width: 62%; min-width: 640px;
+            border-radius: 50px; border-top: 2px solid var(--accent-cyan);
+            background: linear-gradient(180deg, rgba(4,9,28,0.96) 0%, rgba(4,9,28,0.7) 100%);
+        }
+        .top-bar.dead-zone-dim { transform: translateX(-50%) translateZ(-28px) scale(0.982); }
+
+        .speed-hud { display: flex; align-items: baseline; gap: 6px; }
+        .speed-val {
+            font-family: var(--font-display); font-size: 2.8rem; font-weight: 700;
+            color: #fff; text-shadow: 0 0 18px var(--accent-cyan-glow); transition: color 0.3s;
+        }
+        .speed-unit { font-family: var(--font-mono); font-size: 0.75rem; color: var(--accent-cyan); letter-spacing: 1px; }
+
+        .hud-center { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+        .clock { font-family: var(--font-display); font-size: 1.6rem; letter-spacing: 3px; color: #fff; text-shadow: 0 0 8px rgba(255,255,255,0.2); }
+        .hud-bangalore-tag { font-family: var(--font-mono); font-size: 0.52rem; color: var(--accent-cyan); letter-spacing: 2.5px; opacity: 0.6; text-transform: uppercase; }
+
+        .signal-container { display: flex; align-items: flex-end; gap: 5px; height: 28px; }
+        .signal-bar { width: 7px; background: rgba(255,255,255,0.12); border-radius: 3px; transition: all 0.4s var(--ease-antigrav); }
+        .signal-bar.active { background: var(--accent-green); box-shadow: 0 0 10px var(--accent-green-glow); }
+        .signal-bar.poor   { background: var(--accent-red);   box-shadow: 0 0 10px var(--accent-red-glow); }
+        .signal-bar:nth-child(1){height:8px} .signal-bar:nth-child(2){height:14px}
+        .signal-bar:nth-child(3){height:20px} .signal-bar:nth-child(4){height:28px}
+
+        /* ── Sidebars ── */
+        .sidebar {
+            position: absolute; top: 100px; bottom: 50px; width: 320px;
+            padding: 22px; overflow: hidden;
+            display: flex; flex-direction: column;
+            transition: transform 0.7s var(--ease-antigrav), opacity 0.6s var(--ease-float);
+        }
+        .left-sidebar {
+            left: 22px; border-left: 2px solid var(--accent-red);
+            background: linear-gradient(95deg, rgba(255,26,78,0.06) 0%, rgba(4,8,22,0.85) 100%);
+        }
+        .right-sidebar {
+            right: 22px; border-right: 2px solid var(--accent-green);
+            background: linear-gradient(-95deg, rgba(0,255,179,0.06) 0%, rgba(4,8,22,0.85) 100%);
+        }
+
+        h2 {
+            font-family: var(--font-display); font-size: 0.8rem; text-transform: uppercase;
+            letter-spacing: 3px; margin-bottom: 16px; padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            display: flex; justify-content: space-between; align-items: center;
+            color: #fff; flex-shrink: 0;
+        }
+        .badge {
+            background: rgba(255,255,255,0.12); padding: 3px 10px; border-radius: 20px;
+            font-size: 0.85rem; font-weight: 700; font-family: var(--font-mono);
+        }
+
+        /* ── Notification List — max-height + clean scroll ── */
+        .notification-list {
+            flex: 1; overflow-y: auto; overflow-x: hidden;
+            display: flex; flex-direction: column; gap: 10px; padding-right: 4px;
+            /* Enforce clean max-height with fade-out at bottom */
+            max-height: 100%;
+            -webkit-mask-image: linear-gradient(to bottom, black 85%, transparent 100%);
+            mask-image: linear-gradient(to bottom, black 85%, transparent 100%);
+        }
+        .notification-list::-webkit-scrollbar { width: 3px; }
+        .notification-list::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); border-radius: 10px; }
+        .notification-list::-webkit-scrollbar-thumb { background: rgba(0,229,255,0.28); border-radius: 10px; }
+        .notification-list::-webkit-scrollbar-thumb:hover { background: rgba(0,229,255,0.55); }
+
+        /* ── Notification Cards ── */
+        .notif-card {
+            background: rgba(255,255,255,0.055);
+            border-radius: 10px; padding: 12px;
+            border-left: 4px solid var(--text-dim);
+            animation: slideIn 0.5s var(--ease-antigrav);
+            position: relative; flex-shrink: 0;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+            transition: transform 0.3s var(--ease-antigrav), background 0.2s, box-shadow 0.3s;
+        }
+        .notif-card:hover { transform: translateX(4px) translateZ(4px); background: rgba(255,255,255,0.09); }
+
+        @keyframes slideIn {
+            0%   { opacity:0; transform:translateX(30px) scale(0.92); }
+            60%  { opacity:1; transform:translateX(-3px) scale(1.02); }
+            100% { transform:translateX(0) scale(1); }
+        }
+        .notif-card.restored {
+            animation: slideIn 0.5s var(--ease-antigrav), restoredGlow 2.4s ease 0.1s;
+        }
+        @keyframes restoredGlow {
+            0%   { box-shadow:0 0 0 rgba(0,229,255,0); border-left-color:var(--accent-cyan); background:rgba(0,229,255,0.1); }
+            20%  { box-shadow:0 0 35px rgba(0,229,255,0.55); background:rgba(0,229,255,0.2); }
+            70%  { box-shadow:0 0 18px rgba(0,229,255,0.3); }
+            100% { box-shadow:none; background:rgba(255,255,255,0.055); border-left-color:var(--text-dim); }
+        }
+
+        /* ── WhatsApp Stack Card — pulsing counter ── */
+        .notif-card.whatsapp-stack {
+            border-left-color: #25D366;
+            background: rgba(37,211,102,0.07);
+        }
+        .notif-card.whatsapp-stack.counter-bump {
+            animation: stackBump 0.6s var(--ease-antigrav);
+        }
+        @keyframes stackBump {
+            0%   { transform:scale(1); box-shadow:0 0 0 rgba(37,211,102,0); }
+            35%  { transform:scale(1.035) translateX(-2px); box-shadow:0 0 22px rgba(37,211,102,0.55); }
+            100% { transform:scale(1); box-shadow:0 0 8px rgba(37,211,102,0.15); }
+        }
+        .stack-counter {
+            display: inline-flex; align-items: center; justify-content: center;
+            background: #25D366; color: #000;
+            font-family: var(--font-display); font-size: 0.7rem; font-weight: 900;
+            width: 22px; height: 22px; border-radius: 50%;
+            position: absolute; top: 10px; right: 10px;
+            box-shadow: 0 0 12px rgba(37,211,102,0.6);
+            transition: transform 0.3s var(--ease-antigrav), background 0.2s;
+        }
+
+        /* App card colour codes */
+        .notif-card.critical  { border-left-color: var(--accent-red); box-shadow:0 0 12px rgba(255,26,78,0.15); }
+        .notif-card.WhatsApp  { border-left-color: #25D366; }
+        .notif-card.Maps      { border-left-color: #4285F4; }
+        .notif-card.GoogleNews{ border-left-color: var(--accent-news); }
+        .notif-card.Gmail     { border-left-color: var(--accent-gmail); }
+        .notif-card.System    { border-left-color: var(--accent-cyan); }
+        .notif-card.Phone     { border-left-color: var(--accent-yellow); }
+
+        .notif-header { display:flex; justify-content:space-between; font-size:0.72rem; color:var(--text-dim); margin-bottom:6px; text-transform:uppercase; letter-spacing:1px; }
+        .notif-app   { font-weight:700; color:#fff; font-family:var(--font-mono); }
+        .notif-title { font-size:0.92rem; font-weight:600; margin-bottom:4px; color:var(--accent-cyan); font-family:var(--font-body); }
+        .notif-body  { font-size:0.82rem; color:#c8d4f0; line-height:1.45; }
+        .status-badge {
+            position:absolute; top:10px; right:10px;
+            font-size:0.66rem; padding:2px 7px; border-radius:5px;
+            background:rgba(255,26,78,0.18); color:#ff4a7a;
+            border:1px solid rgba(255,26,78,0.32); font-weight:600; font-family:var(--font-mono);
+        }
+        .restored-tag {
+            display:inline-block; margin-top:5px; font-size:0.62rem; font-family:var(--font-display);
+            padding:2px 7px; border-radius:4px;
+            background:rgba(0,229,255,0.12); color:var(--accent-cyan);
+            border:1px solid rgba(0,229,255,0.28); letter-spacing:0.08em;
+        }
+
+        /* ═══════════════════════════════════════
+           ALERTS
+        ═══════════════════════════════════════ */
+        .alerts-container {
+            position: absolute; top: 100px; left: 50%; transform: translateX(-50%);
+            display: flex; flex-direction: column; gap: 12px; align-items: center;
+            z-index: 1002; pointer-events: none;
+        }
+        .zone-alert, .pothole-alert {
+            background: rgba(255,26,78,0.1); border: 1.5px solid var(--accent-red);
+            color: #fff; padding: 10px 26px; border-radius: 6px;
+            font-family: var(--font-display); font-weight: 700; letter-spacing: 3px;
+            font-size: 0.75rem; opacity: 0; transition: opacity 0.35s;
+            box-shadow: 0 0 28px var(--accent-red-glow);
+            backdrop-filter: blur(8px); display: none; text-transform: uppercase;
+        }
+        .pothole-alert { background:rgba(255,204,0,0.1); border-color:var(--accent-yellow); box-shadow:0 0 28px var(--accent-yellow-glow); }
+        .zone-alert.visible, .pothole-alert.visible { display:block; opacity:1; animation:pulseAlert 1.6s infinite; }
+        .pothole-alert.visible { animation:pulseAlertYellow 1s infinite; }
+        @keyframes pulseAlert { 0%,100%{box-shadow:0 0 12px rgba(255,26,78,0.4);transform:scale(1)} 50%{box-shadow:0 0 40px rgba(255,26,78,0.75);transform:scale(1.04)} }
+        @keyframes pulseAlertYellow { 0%,100%{box-shadow:0 0 12px rgba(255,204,0,0.4);transform:scale(1)} 50%{box-shadow:0 0 40px rgba(255,204,0,0.75);transform:scale(1.06)} }
+
+        /* ═══════════════════════════════════════
+           ARRIVAL / SHUTDOWN OVERLAY
+        ═══════════════════════════════════════ */
+        #arrivalOverlay {
+            position: fixed; inset: 0; z-index: 5000;
+            background: rgba(0, 0, 0, 0);
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            pointer-events: none; opacity: 0;
+            transition: background 1.5s ease, opacity 0.8s ease;
+        }
+        #arrivalOverlay.active {
+            background: rgba(0,0,0,0.72);
+            pointer-events: auto; opacity: 1;
+        }
+        .arrival-inner {
+            display: flex; flex-direction: column; align-items: center; gap: 18px;
+            opacity: 0; transform: translateY(20px) scale(0.95);
+            transition: opacity 0.8s 0.5s ease, transform 0.8s 0.5s var(--ease-antigrav);
+        }
+        #arrivalOverlay.active .arrival-inner { opacity: 1; transform: translateY(0) scale(1); }
+        .arrival-icon {
+            font-size: 3.5rem;
+            filter: drop-shadow(0 0 30px var(--accent-green));
+            animation: iconFloat 3s ease-in-out infinite;
+        }
+        @keyframes iconFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+        .arrival-title {
+            font-family: var(--font-display); font-size: 1.4rem; font-weight: 900;
+            color: var(--accent-green); letter-spacing: 5px; text-transform: uppercase;
+            text-shadow: 0 0 30px var(--accent-green-glow);
+        }
+        .arrival-dest {
+            font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);
+            letter-spacing: 3px; text-transform: uppercase;
+        }
+        .arrival-msg {
+            font-family: var(--font-body); font-size: 1.05rem; color: var(--text-main);
+            text-align: center; max-width: 420px; line-height: 1.7; opacity: 0.85;
+        }
+        .arrival-standby {
+            font-family: var(--font-display); font-size: 0.6rem; letter-spacing: 4px;
+            color: var(--accent-cyan); text-transform: uppercase; opacity: 0.5;
+            padding: 6px 20px; border: 1px solid rgba(0,229,255,0.2); border-radius: 20px;
+            animation: standbyBlink 2s ease-in-out infinite;
+        }
+        @keyframes standbyBlink { 0%,100%{opacity:0.5} 50%{opacity:0.15} }
+
+        /* ═══════════════════════════════════════
+           VOICE PANEL
+        ═══════════════════════════════════════ */
+        #voicePanel {
+            position: absolute; bottom: 55px; left: 50%;
+            transform: translateX(-50%) translateZ(0px);
+            width: 500px; background: var(--panel-bg-deep);
+            backdrop-filter: blur(22px);
+            border: 1px solid rgba(0,229,255,0.3); border-radius: 18px;
+            padding: 18px 26px; display: none; flex-direction: column; gap: 11px;
+            box-shadow: 0 0 60px rgba(0,229,255,0.12), 0 22px 55px rgba(0,0,0,0.75);
+            pointer-events: auto; z-index: 1100;
+            transition: transform 0.7s var(--ease-antigrav), opacity 0.5s ease;
+        }
+        #voicePanel.visible { display: flex; }
+        #voicePanel.dead-zone-dim { opacity:0.4; transform:translateX(-50%) translateZ(-28px) scale(0.982); }
+
+        .vp-assistant-line { display: flex; align-items: flex-start; gap: 12px; }
+        .vp-avatar {
+            width: 34px; height: 34px; flex-shrink: 0; border-radius: 50%;
+            background: radial-gradient(circle, rgba(0,229,255,0.25) 0%, rgba(0,229,255,0.04) 100%);
+            border: 1.5px solid var(--accent-cyan);
+            display: flex; align-items: center; justify-content: center; font-size: 15px;
+            box-shadow: 0 0 16px rgba(0,229,255,0.4);
+        }
+        .vp-avatar.speaking { animation: avatarPulse 0.85s ease-in-out infinite; }
+        @keyframes avatarPulse { 0%,100%{box-shadow:0 0 8px rgba(0,229,255,0.35)} 50%{box-shadow:0 0 30px rgba(0,229,255,0.9)} }
+        .vp-label { font-family:var(--font-display); font-size:0.52rem; letter-spacing:0.2em; color:var(--accent-cyan); text-transform:uppercase; margin-bottom:4px; opacity:0.65; }
+        #vpAssistantText { font-size:0.92rem; color:var(--text-main); line-height:1.55; min-height:20px; font-family:var(--font-body); }
+
+        .vp-user-row { display:flex; align-items:center; gap:10px; min-height:26px; }
+        .mic-wrap { display:flex; align-items:center; gap:9px; }
+        #micOrb {
+            width:18px; height:18px; border-radius:50%;
+            background:rgba(0,229,255,0.1); border:1.5px solid rgba(0,229,255,0.28);
+            flex-shrink:0; transition:all 0.3s;
+        }
+        #micOrb.listening { background:rgba(0,229,255,0.3); border-color:var(--accent-cyan); animation:micRipple 1.1s ease-out infinite; }
+        @keyframes micRipple {
+            0%   { box-shadow:0 0 0 0 rgba(0,229,255,0.6),0 0 0 0 rgba(0,229,255,0.35); }
+            60%  { box-shadow:0 0 0 10px rgba(0,229,255,0),0 0 0 22px rgba(0,229,255,0); }
+            100% { box-shadow:0 0 0 0 rgba(0,229,255,0),0 0 0 0 rgba(0,229,255,0); }
+        }
+        #micStatus { font-family:var(--font-display); font-size:0.6rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--text-dim); transition:color 0.3s; }
+        #micStatus.listening { color:var(--accent-cyan); }
+        #vpUserTranscript { font-family:var(--font-body); font-size:0.88rem; color:var(--accent-green); font-style:italic; min-height:18px; }
+
+        .waveform { display:flex; align-items:center; gap:3px; height:18px; opacity:0; transition:opacity 0.4s; }
+        .waveform.active { opacity:1; }
+        .waveform span { display:block; width:3px; border-radius:3px; background:var(--accent-cyan); min-height:3px; }
+        .waveform span:nth-child(1){animation:wave1 0.6s ease-in-out infinite}
+        .waveform span:nth-child(2){animation:wave2 0.7s ease-in-out infinite 0.1s}
+        .waveform span:nth-child(3){animation:wave3 0.5s ease-in-out infinite 0.05s}
+        .waveform span:nth-child(4){animation:wave4 0.8s ease-in-out infinite 0.15s}
+        .waveform span:nth-child(5){animation:wave5 0.65s ease-in-out infinite 0.08s}
+        @keyframes wave1{0%,100%{height:3px}50%{height:15px}}
+        @keyframes wave2{0%,100%{height:7px}50%{height:18px}}
+        @keyframes wave3{0%,100%{height:5px}50%{height:13px}}
+        @keyframes wave4{0%,100%{height:9px}50%{height:20px}}
+        @keyframes wave5{0%,100%{height:4px}50%{height:11px}}
+
+        .vp-btn-row { display:flex; flex-wrap:wrap; gap:8px; }
+        .vp-btn-row.hidden { display:none; }
+        .vp-btn {
+            padding:7px 16px; font-family:var(--font-display); font-size:0.6rem;
+            letter-spacing:1.5px; text-transform:uppercase; cursor:pointer; border-radius:4px;
+            border:1px solid rgba(0,229,255,0.35); background:rgba(0,229,255,0.07); color:var(--accent-cyan);
+            transition:all 0.28s var(--ease-antigrav);
+        }
+        .vp-btn:hover { background:var(--accent-cyan); color:#000; box-shadow:0 0 20px var(--accent-cyan-glow); transform:scale(1.05); }
+
+        #routePill {
+            display:none; align-items:center; gap:10px;
+            background:rgba(0,229,255,0.06); border:1px solid rgba(0,229,255,0.22);
+            border-radius:8px; padding:8px 14px; font-family:var(--font-body); font-size:0.9rem;
+        }
+        #routePill.visible { display:flex; }
+        #routeProgressBar { flex:1; height:3px; background:rgba(255,255,255,0.1); border-radius:2px; overflow:hidden; }
+        #routeProgressFill { height:100%; width:0%; background:var(--accent-cyan); box-shadow:0 0 8px var(--accent-cyan-glow); transition:width 0.4s linear; }
+
+        /* ═══════════════════════════════════════
+           CAR MARKER
+        ═══════════════════════════════════════ */
+        .car-marker {
+            width:26px; height:26px;
+            background:radial-gradient(circle, #00e5ff 0%, #0090b3 100%);
+            border-radius:50%; border:2.5px solid #fff;
+            box-shadow:0 0 18px var(--accent-cyan-glow), 0 0 40px rgba(0,229,255,0.3);
+            transition:transform 0.15s ease; position:relative;
+        }
+        .car-marker::after {
+            content:''; position:absolute; top:-8px; left:50%; transform:translateX(-50%);
+            width:0; height:0;
+            border-left:6px solid transparent; border-right:6px solid transparent;
+            border-bottom:9px solid #fff;
+        }
+
+        /* ═══════════════════════════════════════
+           SETTINGS + MISC
+        ═══════════════════════════════════════ */
+        .settings-btn {
+            position:absolute; bottom:22px; right:22px; font-family:var(--font-display);
+            font-size:0.6rem; letter-spacing:2.5px; padding:9px 18px;
+            background:rgba(4,8,22,0.85); color:var(--accent-cyan);
+            border:1px solid rgba(0,229,255,0.28); border-radius:6px;
+            cursor:pointer; pointer-events:auto; transition:all 0.3s var(--ease-antigrav); text-transform:uppercase;
+        }
+        .settings-btn:hover { background:rgba(0,229,255,0.12); box-shadow:0 0 20px rgba(0,229,255,0.2); transform:scale(1.04); }
+
+        .journey-info {
+            position:absolute; bottom:22px; left:22px; font-family:var(--font-mono);
+            font-size:0.58rem; color:var(--text-dim); line-height:1.8; letter-spacing:0.5px; pointer-events:none;
+        }
+
+        .modal-overlay {
+            position:fixed; inset:0; z-index:8000;
+            background:rgba(0,0,0,0.75); backdrop-filter:blur(6px);
+            display:none; justify-content:center; align-items:center;
+        }
+        .modal-overlay.active { display:flex; }
+        .settings-modal {
+            background:var(--panel-bg-deep); border:1px solid rgba(0,229,255,0.22);
+            border-radius:18px; padding:28px; width:420px; max-height:80vh; overflow-y:auto;
+            box-shadow:0 0 80px rgba(0,229,255,0.1),0 30px 70px rgba(0,0,0,0.8);
+            animation:modalIn 0.45s var(--ease-antigrav);
+        }
+        @keyframes modalIn { 0%{opacity:0;transform:scale(0.88) translateY(20px)} 100%{transform:scale(1) translateY(0);opacity:1} }
+        .settings-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:22px; }
+        .settings-header h2 { font-size:0.85rem; border-bottom:none; margin-bottom:0; padding-bottom:0; }
+        .close-btn { background:none; border:none; color:var(--text-dim); font-size:1.4rem; cursor:pointer; padding:0 4px; transition:color 0.2s; }
+        .close-btn:hover { color:#fff; }
+        .setting-item { display:flex; justify-content:space-between; align-items:center; padding:14px 0; border-bottom:1px solid rgba(255,255,255,0.06); }
+        .setting-name { font-family:var(--font-body); font-size:1rem; font-weight:600; color:#fff; margin-bottom:2px; }
+        .setting-desc { font-size:0.8rem; color:var(--text-dim); }
+        .switch { position:relative; display:inline-block; width:44px; height:24px; flex-shrink:0; }
+        .switch input { opacity:0; width:0; height:0; }
+        .slider { position:absolute; cursor:pointer; inset:0; border-radius:24px; background:rgba(255,255,255,0.12); transition:0.4s var(--ease-antigrav); }
+        .slider:before { content:""; position:absolute; height:18px; width:18px; left:3px; bottom:3px; background:#fff; border-radius:50%; transition:0.4s var(--ease-antigrav); }
+        input:checked + .slider { background:rgba(0,229,255,0.35); border:1px solid var(--accent-cyan); }
+        input:checked + .slider:before { transform:translateX(20px); background:var(--accent-cyan); box-shadow:0 0 10px var(--accent-cyan-glow); }
+    </style>
+</head>
+<body>
+
+<!-- START SCREEN -->
+<div id="startScreen">
+    <div class="start-city-tag">⬡ Bangalore · Karnataka · IN</div>
+    <div class="start-logo">HARMAN <span>HUD</span></div>
+    <div class="start-subtitle">System Ready: Awaiting Route Initialization</div>
+    <button class="start-btn" id="startEngineBtn">INITIALIZE ARIA</button>
+    <div class="start-mic-note">Microphone access required for voice navigation</div>
+</div>
+
+<!-- Map -->
+<div id="map"></div>
+
+<!-- Arrival / Shutdown Overlay -->
+<div id="arrivalOverlay">
+    <div class="arrival-inner">
+        <div class="arrival-icon">🏁</div>
+        <div class="arrival-title">Destination Reached</div>
+        <div class="arrival-dest" id="arrivalDestName">—</div>
+        <div class="arrival-msg" id="arrivalMsg"></div>
+        <div class="arrival-standby">GeoDefer · Standby Mode</div>
+    </div>
+</div>
+
+<!-- HUD Layer -->
+<div class="hud-layer">
+
+    <!-- Top Bar -->
+    <div class="panel top-bar" id="topBar">
+        <div class="speed-hud">
+            <span class="speed-val" id="speedDisplay">0</span>
+            <span class="speed-unit">KM/H</span>
+        </div>
+        <div class="hud-center">
+            <div class="clock" id="clockDisplay">--:--</div>
+            <div class="hud-bangalore-tag">Bangalore · GeoDefer Active</div>
+        </div>
+        <div class="signal-container" id="signalBars">
+            <div class="signal-bar active"></div>
+            <div class="signal-bar active"></div>
+            <div class="signal-bar active"></div>
+            <div class="signal-bar active"></div>
+        </div>
+    </div>
+
+    <!-- Alerts -->
+    <div class="alerts-container">
+        <div class="zone-alert"    id="zoneAlert">⚠ Dead Zone — Deferring Low Priority</div>
+        <div class="pothole-alert" id="potholeAlert">⚠ Pothole Detected Ahead</div>
+    </div>
+
+    <!-- LEFT: Pending -->
+    <div class="panel sidebar left-sidebar" id="leftPanel">
+        <h2>Pending <span class="badge" id="pendingCount">0</span></h2>
+        <div class="notification-list" id="pendingList"></div>
+    </div>
+
+    <!-- RIGHT: Delivered -->
+    <div class="panel sidebar right-sidebar" id="rightPanel">
+        <h2>Delivered <span class="badge" id="deliveredCount">0</span></h2>
+        <div class="notification-list" id="deliveredList"></div>
+    </div>
+
+    <!-- VOICE PANEL -->
+    <div id="voicePanel">
+        <div class="vp-assistant-line">
+            <div class="vp-avatar" id="vpAvatar">🤖</div>
+            <div class="vp-text-bubble">
+                <div class="vp-label">ARIA · GeoDefer Bangalore</div>
+                <div id="vpAssistantText">Initialising…</div>
+            </div>
+        </div>
+        <div class="waveform" id="waveform">
+            <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <div class="vp-user-row">
+            <div class="mic-wrap">
+                <div id="micOrb"></div>
+                <span id="micStatus">Standby</span>
+            </div>
+            <div id="vpUserTranscript"></div>
+        </div>
+        <div class="vp-btn-row hidden" id="fallbackBtns"></div>
+        <div id="routePill">
+            <span>📍</span>
+            <span id="routePillText">Route: — → —</span>
+            <div id="routeProgressBar"><div id="routeProgressFill"></div></div>
+        </div>
+    </div>
+
+    <!-- Settings -->
+    <button class="settings-btn" id="openSettingsBtn">App Priorities</button>
+
+    <!-- Journey Info -->
+    <div class="journey-info" id="journeyInfo"></div>
+
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settingsModal">
+    <div class="settings-modal">
+        <div class="settings-header">
+            <h2>Notification Priorities</h2>
+            <button class="close-btn" id="closeSettingsBtn">&times;</button>
+        </div>
+        <div id="settingsList"></div>
+        <div class="setting-item" style="border-bottom:none;padding-top:18px;border-top:1px solid rgba(0,229,255,0.1);margin-top:8px;">
+            <div>
+                <div class="setting-name" style="color:var(--accent-cyan);">🔊 Voice Feedback</div>
+                <div class="setting-desc">ARIA reads alerts aloud during navigation</div>
+            </div>
+            <label class="switch"><input type="checkbox" id="voiceToggle" checked><span class="slider"></span></label>
+        </div>
+    </div>
+</div>
+
+<!-- Leaflet -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+/* ════════════════════════════════════════════════════════════════
+   HARMAN GeoDefer — Bangalore Autonomous HUD  v3
+   ─────────────────────────────────────────────────────────────
+   Changes in v3:
+     • Smart Stack aggregation for WhatsApp
+     • Spotify → Google News + Gmail
+     • Priority realignment: WhatsApp / News / Gmail always deferred
+     • Road-realistic Bangalore waypoint geometry
+     • Shutdown Sequence: decay → arrival overlay → ARIA farewell
+════════════════════════════════════════════════════════════════ */
+
+// ── 1. STATE MACHINE ──────────────────────────────────────────
+const AssistantState = Object.freeze({
+    IDLE:'IDLE', GREETING:'GREETING', ASK_START:'ASK_START',
+    ASK_ORIGIN:'ASK_ORIGIN', ASK_DEST:'ASK_DEST',
+    CONFIRMING:'CONFIRMING', NAVIGATING:'NAVIGATING', ARRIVED:'ARRIVED',
+});
+let state          = AssistantState.IDLE;
+let isVoiceEnabled = true;
+const DRIVER_NAME  = 'Driver';
+
+// ── 2. BANGALORE WAYPOINT GEOCODING ──────────────────────────
+/*  Each route key maps to an ordered list of [lat,lng] waypoints
+    that simulate following actual Bangalore road corridors.
+    The car will traverse ALL waypoints sequentially.           */
+const BANGALORE_ROUTES = {
+    'indiranagar': {
+        coord: [12.9784, 77.6408],
+        // Via 100ft Road → CMH Road cluster
+        waypoints: [[12.9784,77.6408],[12.9762,77.6388],[12.9750,77.6350]],
+    },
+    'koramangala': {
+        coord: [12.9352, 77.6245],
+        waypoints: [[12.9352,77.6245],[12.9380,77.6290],[12.9410,77.6260]],
+    },
+    'whitefield': {
+        coord: [12.9698, 77.7499],
+        // Via Old Airport Road → Marathahalli Bridge → ITPL Main Road
+        waypoints: [[12.9698,77.7499],[12.9650,77.7300],[12.9610,77.7100],[12.9591,77.7013]],
+    },
+    'yelahanka': {
+        coord: [13.1005, 77.5963],
+        // Via Bellary Road → GKVK Cross
+        waypoints: [[13.1005,77.5963],[13.0800,77.5975],[13.0600,77.5960]],
+    },
+    'jayanagar': {
+        coord: [12.9250, 77.5938],
+        // Via 4th Block → 11th Main
+        waypoints: [[12.9250,77.5938],[12.9270,77.5960],[12.9290,77.5980]],
+    },
+    'electronic city': {
+        coord: [12.8399, 77.6770],
+        // Via Hosur Road flyover → Phase 1 → Phase 2
+        waypoints: [[12.8399,77.6770],[12.8520,77.6690],[12.8650,77.6620],[12.8780,77.6560]],
+    },
+    'hebbal': {
+        coord: [13.0350, 77.5970],
+        // Via Outer Ring Road → Hebbal flyover
+        waypoints: [[13.0350,77.5970],[13.0250,77.5960],[13.0100,77.5950]],
+    },
+    'rajajinagar': {
+        coord: [12.9907, 77.5530],
+        // Via Chord Road → Rajajinagar Industrial Area
+        waypoints: [[12.9907,77.5530],[12.9880,77.5580],[12.9850,77.5640]],
+    },
+    'mg road': {
+        coord: [12.9738, 77.6119],
+        waypoints: [[12.9738,77.6119],[12.9720,77.6100],[12.9700,77.6080]],
+    },
+    'hsr layout': {
+        coord: [12.9100, 77.6450],
+        // Via Outer Ring Road → Agara → Sector 7
+        waypoints: [[12.9100,77.6450],[12.9150,77.6400],[12.9200,77.6350],[12.9240,77.6300]],
+    },
+    'marathahalli': {
+        coord: [12.9591, 77.7013],
+        // Via HAL Airport Road → Sai Baba Ashram Road
+        waypoints: [[12.9591,77.7013],[12.9560,77.6900],[12.9530,77.6800]],
+    },
+    'btm layout': {
+        coord: [12.9166, 77.6101],
+        // Via Bannerghatta Road → 29th Main
+        waypoints: [[12.9166,77.6101],[12.9200,77.6130],[12.9230,77.6160]],
+    },
+    'malleswaram': {
+        coord: [13.0035, 77.5715],
+        waypoints: [[13.0035,77.5715],[13.0000,77.5750],[12.9970,77.5790]],
+    },
+    'jp nagar': {
+        coord: [12.9063, 77.5858],
+        waypoints: [[12.9063,77.5858],[12.9080,77.5900],[12.9100,77.5950]],
+    },
+    'bannerghatta': {
+        coord: [12.8636, 77.5982],
+        waypoints: [[12.8636,77.5982],[12.8750,77.5960],[12.8870,77.5940]],
+    },
+    'richmond road': {
+        coord: [12.9630, 77.6105],
+        waypoints: [[12.9630,77.6105],[12.9650,77.6140],[12.9670,77.6175]],
+    },
+    'bommanahalli': {
+        coord: [12.8920, 77.6476],
+        waypoints: [[12.8920,77.6476],[12.9000,77.6440],[12.9070,77.6400]],
+    },
+    'kengeri': {
+        coord: [12.9066, 77.4848],
+        // Via Mysore Road
+        waypoints: [[12.9066,77.4848],[12.9100,77.5000],[12.9140,77.5200],[12.9180,77.5400]],
+    },
+    'sarjapur': {
+        coord: [12.8593, 77.6882],
+        waypoints: [[12.8593,77.6882],[12.8700,77.6800],[12.8820,77.6700]],
+    },
+    'kr puram': {
+        coord: [13.0000, 77.6950],
+        // Via Old Madras Road → Tin Factory
+        waypoints: [[13.0000,77.6950],[12.9900,77.6800],[12.9800,77.6640],[12.9700,77.6500]],
+    },
+};
+
+// Helper: get single coord from route key
+function getCoord(key) {
+    return BANGALORE_ROUTES[key] ? BANGALORE_ROUTES[key].coord : null;
+}
+
+const FALLBACK_START = 'indiranagar';
+const FALLBACK_DEST  = 'koramangala';
+let originKey   = FALLBACK_START;
+let destKey     = FALLBACK_DEST;
+let originLabel = 'Indiranagar';
+let destLabel   = 'Koramangala';
+
+// ── 3. MAP INIT ───────────────────────────────────────────────
+const BLORE_CENTER = [12.9716, 77.5946];
+const map = L.map('map', {
+    zoomControl: true, attributionControl: false,
+    scrollWheelZoom: true, dragging: true,
+}).setView(BLORE_CENTER, 12);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom:19 }).addTo(map);
+
+// Car marker
+const carIcon = L.divIcon({
+    className: '',
+    html: '<div class="car-marker" id="carMarkerNode"></div>',
+    iconSize: [26,26], iconAnchor: [13,13],
+});
+let carPosition = { lat: BLORE_CENTER[0], lng: BLORE_CENTER[1] };
+const carMarker = L.marker([carPosition.lat, carPosition.lng], { icon: carIcon }).addTo(map);
+
+// Mutable map elements
+let routePolyline = null;
+let startCircle   = null;
+let endCircle     = null;
+let deadZones     = [];
+let potholes      = [];
+let inDeadZone    = false;
+
+// ── 4. AUTONOMOUS DRIVE ENGINE ────────────────────────────────
+const JOURNEY_DURATION_MS = 100000;  // exactly 100s
+let autodriveActive  = false;
+let journeyStartTime = 0;
+let routePath        = [];           // flat [lat,lng] array interpolated from waypoints
+let currentHeading   = 0;
+let speed            = 0;
+// Shutdown decay state
+let notifDecaying    = false;
+let decayInterval    = null;
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+/*  buildRouteFromWaypoints:
+    Takes the origin, 1-N intermediate waypoints from both locations,
+    and destination waypoints, then interpolates a smooth dense path.  */
+function buildRouteFromWaypoints(oKey, dKey) {
+    const oRoute = BANGALORE_ROUTES[oKey];
+    const dRoute = BANGALORE_ROUTES[dKey];
+
+    // Collect: origin waypoints (forward) + dest waypoints (reversed as approach)
+    const oWP  = oRoute.waypoints || [oRoute.coord];
+    const dWP  = (dRoute.waypoints || [dRoute.coord]).slice().reverse();
+
+    // Build control points: origin → its waypoints outward → midpoint bridge → dest inbound
+    const oCoord = oRoute.coord;
+    const dCoord = dRoute.coord;
+
+    // Create a multi-segment cubic path through all waypoints
+    const allPoints = [
+        oCoord,
+        ...oWP.slice(1),                                           // origin sub-waypoints
+        [lerp(oCoord[0],dCoord[0],0.35), lerp(oCoord[1],dCoord[1],0.35)],  // bridge pt 1
+        [lerp(oCoord[0],dCoord[0],0.65), lerp(oCoord[1],dCoord[1],0.65)],  // bridge pt 2
+        ...dWP.slice(1).reverse(),                                 // dest sub-waypoints
+        dCoord,
+    ];
+
+    // De-duplicate consecutive identical points
+    const unique = allPoints.filter((p,i) => {
+        if (i === 0) return true;
+        return !(p[0] === allPoints[i-1][0] && p[1] === allPoints[i-1][1]);
+    });
+
+    // Interpolate dense points (100 steps total) across all segments
+    const dense = [];
+    const segs  = unique.length - 1;
+    const stepsPerSeg = Math.max(1, Math.floor(100 / segs));
+
+    for (let s = 0; s < segs; s++) {
+        const a = unique[s];
+        const b = unique[s + 1];
+        // Add a slight perpendicular jitter to avoid perfectly straight segments
+        const jMag = 0.004;
+        const jLat = (Math.random() - 0.5) * jMag;
+        const jLng = (Math.random() - 0.5) * jMag;
+        const midLat = lerp(a[0], b[0], 0.5) + jLat;
+        const midLng = lerp(a[1], b[1], 0.5) + jLng;
+
+        for (let i = 0; i <= stepsPerSeg; i++) {
+            const t    = i / stepsPerSeg;
+            const invT = 1 - t;
+            const lat  = invT*invT*a[0] + 2*invT*t*midLat + t*t*b[0];
+            const lng  = invT*invT*a[1] + 2*invT*t*midLng + t*t*b[1];
+            if (s > 0 && i === 0) continue;  // skip duplicate at segment join
+            dense.push([lat, lng]);
+        }
+    }
+    return dense;
+}
+
+function getInterpolatedPosition(t) {
+    if (routePath.length < 2) return routePath[0] || [carPosition.lat, carPosition.lng];
+    const totalSegments = routePath.length - 1;
+    const floatIdx = t * totalSegments;
+    const idx      = Math.min(Math.floor(floatIdx), totalSegments - 1);
+    const segT     = floatIdx - idx;
+    const a        = routePath[idx];
+    const b        = routePath[idx + 1];
+    return [lerp(a[0],b[0],segT), lerp(a[1],b[1],segT)];
+}
+
+function autonomousDriveTick(timestamp) {
+    if (!autodriveActive) return;
+
+    const elapsed  = timestamp - journeyStartTime;
+    const progress = Math.min(elapsed / JOURNEY_DURATION_MS, 1);
+
+    const [lat, lng] = getInterpolatedPosition(progress);
+
+    // Heading from previous position
+    if (routePath.length >= 2) {
+        const prevProg = Math.max(progress - 0.008, 0);
+        const [pLat, pLng] = getInterpolatedPosition(prevProg);
+        currentHeading = Math.atan2(lng - pLng, lat - pLat) * 180 / Math.PI;
+        const node = document.getElementById('carMarkerNode');
+        if (node) node.style.transform = `rotate(${currentHeading - 90}deg)`;
+    }
+
+    carPosition = { lat, lng };
+    carMarker.setLatLng([lat, lng]);
+    map.panTo([lat, lng], { animate:true, duration:0.15 });
+
+    // Speed: sinusoidal fluctuation 40-60 km/h
+    speed = 50 + Math.round(10 * Math.sin(timestamp / 1800 + Math.cos(timestamp / 900)));
+    document.getElementById('speedDisplay').innerText = speed;
+
+    // Progress bar
+    document.getElementById('routeProgressFill').style.width = (progress * 100) + '%';
+
+    // Spatial checks
+    checkSpatialState();
+
+    // Last-5-second notification decay
+    const remaining = JOURNEY_DURATION_MS - elapsed;
+    if (remaining < 5000 && !notifDecaying) {
+        startNotificationDecay();
+    }
+
+    if (progress < 1) {
+        requestAnimationFrame(autonomousDriveTick);
+    } else {
+        triggerArrivalSequence();
+    }
+}
+
+// ── 5. ARRIVAL SHUTDOWN SEQUENCE ─────────────────────────────
+function startNotificationDecay() {
+    notifDecaying = true;
+    // Stop generating new notifications immediately
+    if (simulationInterval) {
+        clearInterval(simulationInterval);
+        simulationInterval = null;
+    }
+}
+
+function triggerArrivalSequence() {
+    autodriveActive = false;
+    speed = 0;
+    document.getElementById('speedDisplay').innerText = '0';
+
+    // Snap car to exact destination
+    const dCoord = getCoord(destKey);
+    if (dCoord) {
+        carPosition = { lat: dCoord[0], lng: dCoord[1] };
+        carMarker.setLatLng(dCoord);
+    }
+
+    // Build ARIA farewell message
+    const farewell = `You have reached your destination at ${destLabel}. GeoDefer systems are now entering standby. Have a great day, ${DRIVER_NAME}.`;
+
+    // Show arrival overlay (slight delay for the car to visually stop)
+    setTimeout(() => {
+        document.getElementById('arrivalDestName').textContent = destLabel.toUpperCase();
+        document.getElementById('arrivalMsg').textContent = farewell;
+        document.getElementById('arrivalOverlay').classList.add('active');
+        state = AssistantState.ARRIVED;
+
+        // Speak farewell via ARIA
+        speakNavigationAlert(farewell);
+
+        // Update journey info
+        document.getElementById('journeyInfo').innerHTML = `✓ Arrived · ${destLabel}`;
+    }, 600);
+}
+
+// ── 6. ROUTE SETUP ────────────────────────────────────────────
+async function setupRoute(oKey, dKey) {
+    const oCoord = getCoord(oKey);
+    const dCoord = getCoord(dKey);
+    if (!oCoord || !dCoord) return false;
+
+    originKey   = oKey;
+    destKey     = dKey;
+    originLabel = toTitleCase(oKey);
+    destLabel   = toTitleCase(dKey);
+
+    // Clear old map layers
+    if (routePolyline) { map.removeLayer(routePolyline); routePolyline = null; }
+    if (startCircle)   { map.removeLayer(startCircle);   startCircle   = null; }
+    if (endCircle)     { map.removeLayer(endCircle);     endCircle     = null; }
+    deadZones.forEach(z => map.removeLayer(z.circle));
+    potholes.forEach(p => map.removeLayer(p.circle));
+    deadZones = [];
+    potholes  = [];
+
+    // Build road-realistic path
+    routePath = buildRouteFromWaypoints(oKey, dKey);
+
+    // Draw polyline — slightly thicker for road feel
+    routePolyline = L.polyline(routePath, {
+        color: 'rgba(0,229,255,0.5)', weight: 3.5, dashArray: '8 5',
+        lineJoin: 'round', lineCap: 'round',
+    }).addTo(map);
+
+    // Start / end markers
+    startCircle = L.circleMarker(oCoord, {
+        radius:8, color:'#f0b840', fillColor:'#f0b840', fillOpacity:0.95, weight:2
+    }).addTo(map).bindTooltip(`🚦 ${originLabel} (Start)`, { direction:'top' });
+
+    endCircle = L.circleMarker(dCoord, {
+        radius:8, color:'#00ffb3', fillColor:'#00ffb3', fillOpacity:0.95, weight:2
+    }).addTo(map).bindTooltip(`🏁 ${destLabel} (Destination)`, { direction:'top' });
+
+    // Fit bounds with padding
+    const bounds = L.latLngBounds([oCoord, dCoord]);
+    map.fitBounds(bounds, { padding: [90, 90] });
+
+    // Scatter route-vector hazards
+    await scatterHazards(routePath);
+
+    // Snap car to origin
+    carPosition = { lat: oCoord[0], lng: oCoord[1] };
+    carMarker.setLatLng(oCoord);
+
+    return true;
+}
+
+// Simulated AI API function for Pothole Prediction
+async function fetchAIPotholePredictions(path) {
+    const API_URL = 'http://127.0.0.1:5000/api/predict_potholes'; // Replace with actual AI API URL
+    
+    try {
+        // Attempting to call the real AI backend
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ route: path })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            return data.predictions; // assuming backend returns { predictions: [{lat, lng}, ...] }
+        }
+    } catch (e) {
+        console.warn('Real AI API not reachable. Falling back to simulated AI prediction for demonstration.');
+    }
+    
+    // Simulated AI API fallback for hackathon demonstration
+    return new Promise(resolve => {
+        setTimeout(() => {
+            const predictions = [];
+            const len = path.length;
+            // AI predicts exactly 5 potholes along the route
+            for (let i = 0; i < 5; i++) {
+                const idx = Math.floor((len / 6) * (i + 1)); 
+                const p = path[idx];
+                predictions.push({
+                    lat: p[0] + (Math.random() - 0.5) * 0.001,
+                    lng: p[1] + (Math.random() - 0.5) * 0.001,
+                    confidence: 0.85 + Math.random() * 0.14
+                });
+            }
+            resolve(predictions);
+        }, 1200); // 1.2s delay to simulate AI inference
+    });
+}
+
+async function scatterHazards(path) {
+    const len = path.length;
+    const numDead = 5 + Math.floor(Math.random() * 3);
+
+    // 1. Generate Dead Zones (existing logic)
+    for (let i = 0; i < numDead; i++) {
+        const idx  = Math.floor(5 + (i / numDead) * (len - 10));
+        const p    = path[idx];
+        const jLat = p[0] + (Math.random() - 0.5) * 0.005;
+        const jLng = p[1] + (Math.random() - 0.5) * 0.005;
+        const radius = 280 + Math.floor(Math.random() * 320);
+        const circle = L.circle([jLat, jLng], {
+            color:'#ff1a4e', fillColor:'#ff1a4e', fillOpacity:0.11,
+            radius, weight:1.5, dashArray:'5,10'
+        }).addTo(map);
+        deadZones.push({ center:[jLat, jLng], radius, circle });
+    }
+
+    // 2. Fetch exactly 5 potholes from AI API
+    const predictedPotholes = await fetchAIPotholePredictions(path);
+    
+    for (const pt of predictedPotholes) {
+        const circle = L.circle([pt.lat, pt.lng], {
+            color:'#ffcc00', fillColor:'#ffcc00', fillOpacity:0.5, radius:25, weight:2
+        }).addTo(map);
+        potholes.push({ center:[pt.lat, pt.lng], radius:25, circle, alerted:false });
+    }
+}
+
+// ── 7. SPATIAL CHECKS ─────────────────────────────────────────
+function checkSpatialState() {
+    if (state !== AssistantState.NAVIGATING) return;
+    const pos = L.latLng(carPosition.lat, carPosition.lng);
+    let currentlyInZone = false, minDepth = Infinity;
+
+    for (const zone of deadZones) {
+        const dist = map.distance(pos, L.latLng(zone.center[0], zone.center[1]));
+        if (dist < zone.radius) {
+            currentlyInZone = true;
+            const depth = zone.radius - dist;
+            if (depth < minDepth) minDepth = depth;
+        }
+    }
+
+    updateSignalStrength(currentlyInZone, minDepth);
+    if (currentlyInZone !== inDeadZone) {
+        inDeadZone = currentlyInZone;
+        handleZoneTransition();
+    }
+
+    for (const ph of potholes) {
+        const dist = map.distance(pos, L.latLng(ph.center[0], ph.center[1]));
+        if (dist < 90 && !ph.alerted) {
+            ph.alerted = true;
+            triggerPotholeAlert();
+        } else if (dist > 160 && ph.alerted) {
+            ph.alerted = false;
+        }
+    }
+}
+
+function updateSignalStrength(inZone, depth) {
+    const bars = document.querySelectorAll('.signal-bar');
+    if (!inZone) {
+        bars.forEach(b => b.className = 'signal-bar active');
+    } else {
+        bars.forEach(b => b.className = 'signal-bar');
+        bars[0].className = 'signal-bar poor';
+        if (depth < 200) bars[1].className = 'signal-bar poor';
+    }
+}
+
+function handleZoneTransition() {
+    // BUG FIX — Chrome panels (top bar, voice panel) get the full dim effect.
+    // Notification sidebars use dead-zone-dim-sidebar which keeps opacity:1
+    // so Pending and Delivered cards remain fully readable inside dead zones.
+    const chromePanels = ['topBar', 'voicePanel'];
+    chromePanels.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('dead-zone-dim', inDeadZone);
+    });
+
+    const notifPanels = ['leftPanel', 'rightPanel'];
+    notifPanels.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('dead-zone-dim-sidebar', inDeadZone);
+    });
+
+    const alertEl = document.getElementById('zoneAlert');
+    if (inDeadZone) {
+        alertEl.classList.add('visible');
+        speakNavigationAlert('Entering dead zone. Non-critical notifications will be deferred.');
+    } else {
+        alertEl.classList.remove('visible');
+        flushPendingQueue();
+    }
+}
+
+function triggerPotholeAlert() {
+    const el = document.getElementById('potholeAlert');
+    el.classList.add('visible');
+    speakNavigationAlert('Warning! Pothole detected ahead.');
+    setTimeout(() => el.classList.remove('visible'), 3500);
+}
+
+// ── 8. APP CONFIG — Spotify removed, Google News + Gmail added ─
+const apps = [
+    { name:'WhatsApp',   desc:'Messages & Calls',        isCritical:false, alwaysDefer:true  },
+    { name:'Maps',       desc:'Navigation Alerts',       isCritical:true,  alwaysDefer:false },
+    { name:'GoogleNews', desc:'News & Trending Stories', isCritical:false, alwaysDefer:true  },
+    { name:'Gmail',      desc:'Email Notifications',     isCritical:false, alwaysDefer:true  },
+    { name:'System',     desc:'Vehicle Warnings',        isCritical:true,  alwaysDefer:false },
+    { name:'Phone',      desc:'Incoming Calls',          isCritical:true,  alwaysDefer:false },
+];
+
+const notificationTemplates = {
+    WhatsApp:   ['Message from Priya','Group: Team Bangalore','Voice note received','Image received','Video shared'],
+    Maps:       ['Take next left on 100ft Rd','Traffic on Hosur Road','Speed camera ahead','Route recalculated'],
+    GoogleNews: ['Bangalore Metro Phase 3 update','Startup raises ₹200Cr in Bengaluru','Tech Summit this weekend'],
+    Gmail:      ['Meeting invite: Sprint Review','Invoice from Swiggy Instamart','FYI: Q3 report attached'],
+    System:     ['Tyre pressure low','Washer fluid low','Service due in 500 km','Engine temp normal'],
+    Phone:      ['Incoming call: Boss','Missed call: Unknown','Voicemail received'],
+};
+
+// ── 9. SMART STACK — WhatsApp Aggregation ─────────────────────
+// whatsappStack: tracks the live pending WhatsApp stack card
+let whatsappStack = null;  // { count, id, timestamp }
+
+function getOrCreateWhatsAppStack() {
+    // If a WA card already exists in pendingQueue, increment it
+    if (whatsappStack) {
+        whatsappStack.count++;
+        whatsappStack.bumped = true;  // flag to trigger CSS bump animation
+        return null;  // signal: update existing, don't add new
+    }
+    // Create a new stack slot
+    whatsappStack = {
+        id:        'wa-stack-' + Date.now(),
+        count:     1,
+        timestamp: new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+        bumped:    false,
+    };
+    return whatsappStack;
+}
+
+// ── 10. NOTIFICATION QUEUES ────────────────────────────────────
+let pendingQueue   = [];
+let deliveredQueue = [];
+let restoreQueue   = [];
+let isRestoring    = false;
+let simulationInterval;
+
+function generateRandomNotification() {
+    if (state !== AssistantState.NAVIGATING) return;
+    if (notifDecaying) return;  // halted in last 5s
+
+    const appObj = apps[Math.floor(Math.random() * apps.length)];
+    const templates = notificationTemplates[appObj.name];
+    const notif = {
+        id:        Date.now() + Math.random(),
+        app:       appObj.name,
+        title:     templates[Math.floor(Math.random() * templates.length)],
+        body:      'GeoDefer · Bangalore route.',
+        timestamp: new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+        isCritical:  appObj.isCritical,
+        alwaysDefer: appObj.alwaysDefer,
+    };
+    processNotification(notif);
+}
+
+/*  Priority Realignment Rules:
+    - System / Phone / Maps (isCritical=true, alwaysDefer=false)
+      → always go to Delivered immediately
+    - WhatsApp / GoogleNews / Gmail (alwaysDefer=true)
+      → always go to Pending, EVEN when not in a dead zone
+      → WhatsApp uses Smart Stack aggregation                   */
+function processNotification(notif) {
+    if (notif.isCritical && !notif.alwaysDefer) {
+        // Critical safety / system → delivered immediately
+        deliverNotification(notif, false);
+    } else if (notif.app === 'WhatsApp') {
+        // Smart Stack aggregation
+        processWhatsAppStack();
+    } else {
+        // All other deferred apps → always to pending
+        queueNotification(notif);
+    }
+}
+
+function processWhatsAppStack() {
+    const result = getOrCreateWhatsAppStack();
+    if (result === null) {
+        // Stack already exists — bump counter on existing card
+        renderQueues(null, true);   // true = bump animation
+    } else {
+        // New stack card → push to pending
+        const stackNotif = {
+            id:          result.id,
+            app:         'WhatsApp',
+            isStack:     true,
+            count:       1,
+            title:       'WhatsApp: 1 New Message',
+            body:        'Stacked to protect your focus.',
+            timestamp:   result.timestamp,
+            isCritical:  false,
+            alwaysDefer: true,
+        };
+        pendingQueue.push(stackNotif);
+        renderQueues();
+    }
+}
+
+function queueNotification(notif) {
+    pendingQueue.push(notif);
+    renderQueues();
+}
+
+function deliverNotification(notif, isRestored = false) {
+    deliveredQueue.unshift(notif);
+    if (deliveredQueue.length > 20) deliveredQueue.pop();
+    renderQueues(isRestored ? notif.id : null);
+    if (state === AssistantState.NAVIGATING && isVoiceEnabled && notif.isCritical) {
+        speakNavigationAlert(`${notif.app}: ${notif.title}.`);
+    }
+}
+
+// ── 11. QUEUE FLUSH ───────────────────────────────────────────
+function flushPendingQueue() {
+    if (!pendingQueue.length) return;
+    const toFlush = [...pendingQueue];
+    pendingQueue  = [];
+    whatsappStack = null;  // reset stack on flush
+    renderQueues();
+
+    if (state === AssistantState.NAVIGATING) {
+        speakNavigationAlert(`Signal restored. Delivering ${toFlush.length} deferred notification${toFlush.length > 1 ? 's' : ''}.`);
+    }
+    toFlush.forEach(n => restoreQueue.push(n));
+    if (!isRestoring) drainRestoreQueue();
+}
+
+function drainRestoreQueue() {
+    if (!restoreQueue.length) { isRestoring = false; return; }
+    isRestoring = true;
+    const notif = restoreQueue.shift();
+    deliveredQueue.unshift(notif);
+    if (deliveredQueue.length > 20) deliveredQueue.length = 20;
+    renderQueues(notif.id);
+    if (state === AssistantState.NAVIGATING && isVoiceEnabled && notif.isCritical) {
+        speakNavigationAlert(`${notif.app}: ${notif.title}.`);
+    }
+    setTimeout(drainRestoreQueue, 800);
+}
+
+// ── 12. RENDER ────────────────────────────────────────────────
+function renderQueues(restoredId = null, bumpWA = false) {
+    // Update WhatsApp stack count in pending if it exists
+    const waSlot = pendingQueue.find(n => n.isStack && n.app === 'WhatsApp');
+    if (waSlot && whatsappStack) {
+        waSlot.count = whatsappStack.count;
+        waSlot.title = `WhatsApp: ${whatsappStack.count} New Message${whatsappStack.count > 1 ? 's' : ''}`;
+    }
+
+    document.getElementById('pendingCount').innerText   = pendingQueue.length;
+    document.getElementById('deliveredCount').innerText = deliveredQueue.length;
+
+    const pList = document.getElementById('pendingList');
+    pList.innerHTML = pendingQueue.map(n => createCard(n, true, false, bumpWA && n.isStack)).join('');
+
+    const dList = document.getElementById('deliveredList');
+    dList.innerHTML = deliveredQueue.map(n => createCard(n, false, n.id === restoredId, false)).join('');
+}
+
+function createCard(notif, isPending, isRestored, isBumped) {
+    const isStackCard = notif.isStack && notif.app === 'WhatsApp';
+    const cls         = notif.isCritical ? 'critical' : notif.app;
+    const stackCls    = isStackCard ? 'whatsapp-stack' : '';
+    const bumpCls     = isBumped   ? 'counter-bump'   : '';
+    const animCls     = isRestored ? 'restored'        : '';
+    const badge       = isPending && !isStackCard ? '<div class="status-badge">Deferred</div>' : '';
+    const rTag        = isRestored ? '<div class="restored-tag">↩ Restored</div>' : '';
+    const stackBadge  = isStackCard
+        ? `<div class="stack-counter">${notif.count}</div>`
+        : '';
+
+    return `<div class="notif-card ${cls} ${stackCls} ${bumpCls} ${animCls}">
+        ${badge}${stackBadge}
+        <div class="notif-header">
+            <span class="notif-app">${notif.app === 'GoogleNews' ? 'Google News' : notif.app}</span>
+            <span>${notif.timestamp}</span>
+        </div>
+        <div class="notif-title">${notif.title}</div>
+        <div class="notif-body">${notif.body}</div>
+        ${rTag}
+    </div>`;
+}
+
+// ── 13. SPEECH SYNTHESIS ─────────────────────────────────────
+function speak(text, onEnd) {
+    if (!('speechSynthesis' in window)) { onEnd && onEnd(); return; }
+    window.speechSynthesis.cancel();
+    const msg    = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
+    const pref   = voices.find(v => v.lang.startsWith('en') && /female|zira|samantha|karen|moira|tessa|victoria/i.test(v.name))
+                || voices.find(v => v.lang.startsWith('en'));
+    if (pref) msg.voice = pref;
+    msg.rate = 0.82; msg.pitch = 1.05; msg.volume = 0.92;
+    msg.onstart = () => {
+        document.getElementById('vpAvatar').classList.add('speaking');
+        document.getElementById('waveform').classList.add('active');
+    };
+    msg.onend = () => {
+        document.getElementById('vpAvatar').classList.remove('speaking');
+        document.getElementById('waveform').classList.remove('active');
+        onEnd && onEnd();
+    };
+    window.speechSynthesis.speak(msg);
+}
+if ('speechSynthesis' in window) {
+    window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+}
+
+function speakNavigationAlert(text) {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const msg    = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
+    const pref   = voices.find(v => v.lang.startsWith('en') && /female|zira|samantha|karen|moira|tessa|victoria/i.test(v.name))
+                || voices.find(v => v.lang.startsWith('en'));
+    if (pref) msg.voice = pref;
+    msg.rate = 0.82; msg.pitch = 1.05; msg.volume = 0.92;
+    window.speechSynthesis.speak(msg);
+}
+
+// ── 14. SPEECH RECOGNITION ────────────────────────────────────
+const SRConstructor = window.SpeechRecognition || window.webkitSpeechRecognition;
+let sr = null, srActive = false;
+
+if (SRConstructor) {
+    sr = new SRConstructor();
+    sr.continuous = false; sr.interimResults = true; sr.lang = 'en-IN';
+    sr.onresult = (e) => {
+        let interim = '', final = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+            const t = e.results[i][0].transcript;
+            if (e.results[i].isFinal) final += t; else interim += t;
+        }
+        document.getElementById('vpUserTranscript').textContent = final || interim;
+        if (final) handleUserSpeech(final.trim().toLowerCase());
+    };
+    sr.onerror = (e) => { if (e.error === 'no-speech') return; setMicUI(false); showFallback(); };
+    sr.onend   = ()  => { srActive = false; setMicUI(false); };
+}
+
+function startListening() {
+    if (!sr) { showFallback(); return; }
+    if (srActive) return;
+    srActive = true;
+    document.getElementById('vpUserTranscript').textContent = '';
+    setMicUI(true);
+    try { sr.start(); } catch(e) {}
+}
+function stopListening() {
+    if (!sr || !srActive) return;
+    srActive = false;
+    try { sr.stop(); } catch(e) {}
+    setMicUI(false);
+}
+function setMicUI(on) {
+    const orb = document.getElementById('micOrb');
+    const st  = document.getElementById('micStatus');
+    if (on) { orb.classList.add('listening'); st.classList.add('listening'); st.textContent = 'Listening…'; }
+    else    { orb.classList.remove('listening'); st.classList.remove('listening'); st.textContent = 'Standby'; }
+}
+
+// ── 15. DIALOGUE STATE MACHINE ────────────────────────────────
+function setAssistantText(t) { document.getElementById('vpAssistantText').textContent = t; }
+function showVoicePanel()    { document.getElementById('voicePanel').classList.add('visible'); }
+
+function doGreeting() {
+    state = AssistantState.GREETING;
+    showVoicePanel();
+    const msg = 'Hello. ARIA is online. GeoDefer systems active for Bangalore. Shall I initialize your route?';
+    setAssistantText(msg);
+    speak(msg, () => {
+        state = AssistantState.ASK_START;
+        setAssistantText('Say "Yes" or "Start" to begin route initialization.');
+        startListening(); showFallbackStart();
+    });
+}
+
+function doAskOrigin() {
+    state = AssistantState.ASK_ORIGIN;
+    const q = 'Where are we starting from?';
+    setAssistantText(q);
+    speak(q, () => { startListening(); showFallbackOrigin(); });
+}
+
+function doAskDest() {
+    state = AssistantState.ASK_DEST;
+    const q = 'And where is your destination?';
+    setAssistantText(q);
+    speak(q, () => { startListening(); showFallbackDest(); });
+}
+
+async function doConfirmRoute() {
+    state = AssistantState.CONFIRMING;
+    stopListening(); hideFallback();
+    
+    setAssistantText('Analyzing route and querying AI for hazard predictions...');
+    
+    const ok = await setupRoute(originKey, destKey);
+    if (!ok) {
+        const err = 'Sorry, I could not resolve those locations. Please try again.';
+        setAssistantText(err);
+        speak(err, () => { state = AssistantState.ASK_ORIGIN; doAskOrigin(); });
+        return;
+    }
+    document.getElementById('routePillText').textContent = `${originLabel} → ${destLabel}`;
+    document.getElementById('routePill').classList.add('visible');
+
+    const msg = `Setting route from ${originLabel} to ${destLabel} in Bangalore. AI has predicted 5 potholes on this route. Autonomous navigation will begin shortly. I will manage your notifications throughout.`;
+    setAssistantText(msg);
+    speak(msg, () => setTimeout(doStartNavigation, 1000));
+}
+
+function doStartNavigation() {
+    state = AssistantState.NAVIGATING;
+    notifDecaying = false;
+
+    // Collapse voice panel
+    setAssistantText('');
+    ['micOrb','micStatus','vpUserTranscript','waveform','vpAvatar'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+    document.querySelectorAll('.vp-label, .vp-user-row').forEach(el => el.style.display='none');
+    const panel = document.getElementById('voicePanel');
+    panel.style.padding = '12px 18px';
+    panel.style.width   = 'auto';
+
+    document.getElementById('journeyInfo').innerHTML =
+        `Autonomous · 100-sec flight · ${originLabel} → ${destLabel}`;
+
+    simulationInterval = setInterval(generateRandomNotification, 3800);
+
+    autodriveActive  = true;
+    journeyStartTime = performance.now();
+    requestAnimationFrame(autonomousDriveTick);
+}
+
+// ── 16. VOICE INPUT HANDLER ───────────────────────────────────
+function resolveLocation(text) {
+    const lower = text.toLowerCase().trim();
+    if (BANGALORE_ROUTES[lower]) return lower;
+    for (const key of Object.keys(BANGALORE_ROUTES)) {
+        if (lower.includes(key) || key.includes(lower)) return key;
+    }
+    const words = lower.split(/\s+/);
+    for (const key of Object.keys(BANGALORE_ROUTES)) {
+        for (const w of words) {
+            if (w.length > 3 && key.includes(w)) return key;
+        }
+    }
+    return null;
+}
+
+function handleUserSpeech(text) {
+    stopListening();
+    document.getElementById('vpUserTranscript').textContent = text;
+
+    if (state === AssistantState.ASK_START) {
+        if (/yes|start|yeah|yep|go|ok|sure|engine|initialize|route/i.test(text)) {
+            hideFallback(); doAskOrigin();
+        } else {
+            const retry = "I didn't catch that. Please say Yes or Start.";
+            setAssistantText(retry);
+            speak(retry, () => startListening());
+        }
+    } else if (state === AssistantState.ASK_ORIGIN) {
+        const key = resolveLocation(text);
+        if (key) {
+            originKey   = key;
+            originLabel = toTitleCase(key);
+            hideFallback(); doAskDest();
+        } else {
+            const retry = `I didn't recognise that. Try Indiranagar, Koramangala, or Whitefield.`;
+            setAssistantText(retry);
+            speak(retry, () => { startListening(); showFallbackOrigin(); });
+        }
+    } else if (state === AssistantState.ASK_DEST) {
+        const key = resolveLocation(text);
+        if (key) {
+            destKey   = key;
+            destLabel = toTitleCase(key);
+            hideFallback(); doConfirmRoute();
+        } else {
+            const retry = `I didn't recognise that. Try Electronic City, Whitefield, or Hebbal.`;
+            setAssistantText(retry);
+            speak(retry, () => { startListening(); showFallbackDest(); });
+        }
+    }
+}
+
+// ── 17. FALLBACK BUTTONS ──────────────────────────────────────
+const FALLBACK_ORIGINS = ['indiranagar','koramangala','mg road','rajajinagar','hebbal','malleswaram'];
+const FALLBACK_DESTS   = ['whitefield','electronic city','jayanagar','yelahanka','hsr layout','marathahalli'];
+
+function showFallbackStart() {
+    if (sr) return;
+    const row = document.getElementById('fallbackBtns');
+    row.innerHTML = `<button class="vp-btn" onclick="handleUserSpeech('yes')">Yes, Start</button>`;
+    row.classList.remove('hidden');
+}
+function showFallbackOrigin() {
+    const row = document.getElementById('fallbackBtns');
+    row.innerHTML = FALLBACK_ORIGINS.map(k =>
+        `<button class="vp-btn" onclick="handleUserSpeech('${k}')">${toTitleCase(k)}</button>`
+    ).join('');
+    row.classList.remove('hidden');
+}
+function showFallbackDest() {
+    const row = document.getElementById('fallbackBtns');
+    row.innerHTML = FALLBACK_DESTS.map(k =>
+        `<button class="vp-btn" onclick="handleUserSpeech('${k}')">${toTitleCase(k)}</button>`
+    ).join('');
+    row.classList.remove('hidden');
+}
+function showFallback() {
+    if (state === AssistantState.ASK_START)  showFallbackStart();
+    if (state === AssistantState.ASK_ORIGIN) showFallbackOrigin();
+    if (state === AssistantState.ASK_DEST)   showFallbackDest();
+}
+function hideFallback() {
+    const row = document.getElementById('fallbackBtns');
+    row.classList.add('hidden'); row.innerHTML = '';
+}
+
+// ── 18. UTILS ─────────────────────────────────────────────────
+function toTitleCase(str) { return str.replace(/\b\w/g, c => c.toUpperCase()); }
+
+// ── 19. CLOCK ─────────────────────────────────────────────────
+function updateClock() {
+    document.getElementById('clockDisplay').innerText =
+        new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+}
+updateClock(); setInterval(updateClock, 1000);
+
+// ── 20. SETTINGS ──────────────────────────────────────────────
+document.getElementById('openSettingsBtn').addEventListener('click', () => {
+    renderSettings();
+    document.getElementById('settingsModal').classList.add('active');
+});
+document.getElementById('closeSettingsBtn').addEventListener('click', () => {
+    document.getElementById('settingsModal').classList.remove('active');
+});
+document.getElementById('voiceToggle').addEventListener('change', function() {
+    isVoiceEnabled = this.checked;
+});
+
+function renderSettings() {
+    const list = document.getElementById('settingsList');
+    list.innerHTML = apps.map((app, i) => `
+        <div class="setting-item">
+            <div>
+                <div class="setting-name">${app.name === 'GoogleNews' ? 'Google News' : app.name}</div>
+                <div class="setting-desc">${app.desc}${app.alwaysDefer ? ' · Always Deferred' : ''}</div>
+            </div>
+            <label class="switch">
+                <input type="checkbox" onchange="toggleAppCritical(${i})" ${app.isCritical ? 'checked' : ''}>
+                <span class="slider"></span>
+            </label>
+        </div>`).join('');
+}
+window.toggleAppCritical = (i) => { apps[i].isCritical = !apps[i].isCritical; };
+
+// ── 21. STARTUP ───────────────────────────────────────────────
+document.getElementById('startEngineBtn').addEventListener('click', () => {
+    document.getElementById('startScreen').classList.add('hidden');
+    setTimeout(() => {
+        renderQueues();
+        doGreeting();
+    }, 500);
+});
+
+renderQueues();
+</script>
+</body>
+</html>
